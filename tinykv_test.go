@@ -71,6 +71,23 @@ func Test03(t *testing.T) {
 	assert.WithinDuration(t, putAt, putAt.Add(elapsed), time.Millisecond*60)
 }
 
+func Test04(t *testing.T) {
+	kv := New(
+		ExpirationInterval(time.Millisecond*10),
+		OnExpire(func(k, v interface{}) {
+			t.Fatal(k, v)
+		}))
+
+	kv.Put(1, 1, ExpiresAfter(time.Millisecond*10000))
+	<-time.After(time.Millisecond * 50)
+	kv.Delete(1)
+	kv.Delete(1)
+
+	<-time.After(time.Millisecond * 100)
+	_, ok := kv.Get(1)
+	assert.False(t, ok)
+}
+
 // func BenchmarkGet01(b *testing.B) {
 // 	rg := NewRegistry(nil, 0)
 // 	for n := 0; n < b.N; n++ {

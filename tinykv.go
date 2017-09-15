@@ -191,17 +191,30 @@ func (kv *KV) _expireLoop() {
 }
 
 func (kv *KV) _expireFunc() {
-	expired := make(map[interface{}]interface{})
+	shouldExpire := kv._getThoseShouldExpire()
+	if len(shouldExpire) == 0 {
+		return
+	}
+
 	kv.rwx.Lock()
+	for k := range shouldExpire {
+		kv.deleteEntry(k)
+	}
+	kv.rwx.Unlock()
+	kv._notifyExpiration(shouldExpire)
+}
+
+func (kv *KV) _getThoseShouldExpire() (list map[interface{}]interface{}) {
+	list = make(map[interface{}]interface{})
+	kv.rwx.RLock()
+	defer kv.rwx.RUnlock()
 	for k, v := range kv.expiresAt {
 		if !time.Now().After(v) {
 			continue
 		}
-		expired[k] = kv.values[k]
-		kv.deleteEntry(k)
+		list[k] = kv.values[k]
 	}
-	kv.rwx.Unlock()
-	kv._notifyExpiration(expired)
+	return
 }
 
 func (kv *KV) _notifyExpiration(expired map[interface{}]interface{}) {
