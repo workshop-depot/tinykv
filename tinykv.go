@@ -198,6 +198,9 @@ func (kv *KV) _expireFunc() {
 
 	kv.rwx.Lock()
 	for k := range shouldExpire {
+		if !time.Now().After(kv.expiresAt[k]) {
+			continue
+		}
 		kv.deleteEntry(k)
 	}
 	kv.rwx.Unlock()

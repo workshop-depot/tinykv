@@ -117,6 +117,28 @@ func Test05(t *testing.T) {
 	}
 }
 
+func Test06(t *testing.T) {
+	kv := New(
+		ExpirationInterval(time.Millisecond),
+		OnExpire(func(k, v interface{}) {
+			t.Fail()
+		}))
+
+	kv.Put(1, 1, ExpiresAfter(10*time.Millisecond), IsSliding(true))
+
+	for i := 0; i < 100; i++ {
+		_, ok := kv.Get(1)
+		assert.True(t, ok)
+		<-time.After(time.Millisecond)
+	}
+	kv.Delete(1)
+
+	<-time.After(time.Millisecond * 30)
+
+	_, ok := kv.Get(1)
+	assert.False(t, ok)
+}
+
 // func BenchmarkGet01(b *testing.B) {
 // 	rg := NewRegistry(nil, 0)
 // 	for n := 0; n < b.N; n++ {
