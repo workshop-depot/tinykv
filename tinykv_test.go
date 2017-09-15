@@ -1,6 +1,9 @@
 package tinykv
 
 import (
+	"fmt"
+	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +89,32 @@ func Test04(t *testing.T) {
 	<-time.After(time.Millisecond * 100)
 	_, ok := kv.Get(1)
 	assert.False(t, ok)
+}
+
+func Test05(t *testing.T) {
+	N := 10000
+	var cnt int64
+	kv := New(
+		ExpirationInterval(time.Millisecond*10),
+		OnExpire(func(k, v interface{}) {
+			atomic.AddInt64(&cnt, 1)
+		}))
+
+	src := rand.NewSource(time.Now().Unix())
+	rnd := rand.New(src)
+	for i := 0; i < N; i++ {
+		k := i
+		kv.Put(k, fmt.Sprintf("VAL::%v", k),
+			ExpiresAfter(
+				time.Millisecond*time.Duration(rnd.Intn(10)+1)))
+	}
+
+	<-time.After(time.Millisecond * 100)
+	for i := 0; i < N; i++ {
+		k := i
+		_, ok := kv.Get(k)
+		assert.False(t, ok)
+	}
 }
 
 // func BenchmarkGet01(b *testing.B) {
