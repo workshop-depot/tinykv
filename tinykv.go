@@ -201,16 +201,22 @@ func (kv *KV) _expireFunc() {
 		kv.deleteEntry(k)
 	}
 	kv.rwx.Unlock()
+	kv._notifyExpiration(expired)
+}
+
+func (kv *KV) _notifyExpiration(expired map[interface{}]interface{}) {
 	if kv.onExpire == nil {
 		return
 	}
-	for k, v := range expired {
-		k, v := k, v
-		go supervisor.Supervise(func() error {
-			kv.onExpire(k, v)
-			return nil
-		})
-	}
+	go func() {
+		for k, v := range expired {
+			k, v := k, v
+			supervisor.Supervise(func() error {
+				kv.onExpire(k, v)
+				return nil
+			})
+		}
+	}()
 }
 
 //-----------------------------------------------------------------------------
