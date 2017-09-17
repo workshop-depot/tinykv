@@ -3,6 +3,14 @@ tiny in-memory single-app kv (cache) with sliding expiration
 
 # v1
 
+Get it using:
+
+```bash
+$ go get gopkg.in/dc0d/tinykv.v1
+```
+
+Benchmarks:
+
 ```
 $ go test -bench=.
 BenchmarkGetNoValue-8          	30000000	        53.5 ns/op
