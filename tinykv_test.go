@@ -139,40 +139,48 @@ func Test06(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// func BenchmarkGet01(b *testing.B) {
-// 	rg := NewRegistry(nil, 0)
-// 	for n := 0; n < b.N; n++ {
-// 		rg.Get(1)
-// 	}
-// }
+func BenchmarkGetNoValue(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Get(1)
+	}
+}
 
-// func BenchmarkGet02(b *testing.B) {
-// 	rg := NewRegistry(nil, 0)
-// 	rg.Put(1, 1)
-// 	for n := 0; n < b.N; n++ {
-// 		rg.Get(1)
-// 	}
-// }
+func BenchmarkGetValue(b *testing.B) {
+	rg := New()
+	rg.Put(1, 1)
+	for n := 0; n < b.N; n++ {
+		rg.Get(1)
+	}
+}
 
-// func BenchmarkGet03(b *testing.B) {
-// 	rg := NewRegistry(nil, 0)
-// 	rg.PutWithExpiration(1, 1, time.Second)
-// 	for n := 0; n < b.N; n++ {
-// 		rg.Get(1)
-// 	}
-// }
+func BenchmarkGetSlidingTimeout(b *testing.B) {
+	rg := New()
+	rg.Put(1, 1, ExpiresAfter(time.Second*10))
+	for n := 0; n < b.N; n++ {
+		rg.Get(1)
+	}
+}
 
-// func BenchmarkPut01(b *testing.B) {
-// 	rg := NewRegistry(nil, 0)
-// 	for n := 0; n < b.N; n++ {
-// 		rg.Put(1, 1)
-// 	}
-// }
+func BenchmarkPut(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Put(1, 1)
+	}
+}
 
-// func BenchmarkCAS02(b *testing.B) {
-// 	rg := NewRegistry(nil, 0)
-// 	rg.Put(1, 1)
-// 	for n := 0; n < b.N; n++ {
-// 		rg.CAS(1, 2, func(interface{}) bool { return true })
-// 	}
-// }
+func BenchmarkCASTrue(b *testing.B) {
+	rg := New()
+	rg.Put(1, 1)
+	for n := 0; n < b.N; n++ {
+		rg.CAS(1, 2, func(interface{}) bool { return true })
+	}
+}
+
+func BenchmarkCASFalse(b *testing.B) {
+	rg := New()
+	rg.Put(1, 1)
+	for n := 0; n < b.N; n++ {
+		rg.CAS(1, 2, func(interface{}) bool { return false })
+	}
+}
