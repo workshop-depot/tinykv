@@ -8,6 +8,11 @@ import (
 	"github.com/dc0d/supervisor"
 )
 
+// res.CAS
+// res.Delete
+// res.Get
+// res.Put
+
 //-----------------------------------------------------------------------------
 
 // KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
@@ -59,7 +64,8 @@ func New(options ...Option) *KV {
 	if res.expirationInterval <= 0 {
 		res.expirationInterval = 30
 	}
-	go res._expireLoop()
+	go res.expireLoop()
+
 	return res
 }
 
@@ -173,7 +179,7 @@ func (kv *KV) deleteEntry(k interface{}) {
 
 //-----------------------------------------------------------------------------
 
-func (kv *KV) _expireLoop() {
+func (kv *KV) expireLoop() {
 	var done <-chan struct{}
 	if kv.ctx != nil {
 		// context.Context Docs: Successive calls to Done return the same value.
@@ -185,13 +191,13 @@ func (kv *KV) _expireLoop() {
 		case <-done:
 			return
 		case <-time.After(kv.expirationInterval):
-			kv._expireFunc()
+			kv.expireFunc()
 		}
 	}
 }
 
-func (kv *KV) _expireFunc() {
-	shouldExpire := kv._getThoseShouldExpire()
+func (kv *KV) expireFunc() {
+	shouldExpire := kv.getThoseShouldExpire()
 	if len(shouldExpire) == 0 {
 		return
 	}
@@ -207,7 +213,7 @@ func (kv *KV) _expireFunc() {
 	kv._notifyExpiration(shouldExpire)
 }
 
-func (kv *KV) _getThoseShouldExpire() (list map[interface{}]interface{}) {
+func (kv *KV) getThoseShouldExpire() (list map[interface{}]interface{}) {
 	list = make(map[interface{}]interface{})
 	kv.rwx.RLock()
 	defer kv.rwx.RUnlock()
