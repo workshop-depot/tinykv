@@ -10,7 +10,7 @@ import (
 
 // KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
 type KV interface {
-	CAS(k, v interface{}, cond func(interface{}) bool) error
+	CAS(k, v interface{}, cond func(interface{}, error) bool) error
 	Delete(k interface{})
 	Get(k interface{}) (v interface{}, ok bool)
 	Put(k, v interface{}, options ...PutOption)
@@ -150,14 +150,15 @@ var (
 )
 
 // CAS performs a compare and swap based on a vlue-condition
-func (kv *store) CAS(k, v interface{}, cond func(interface{}) bool) error {
+func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool) error {
 	kv.rwx.Lock()
 	defer kv.rwx.Unlock()
 	old, ok := kv.values[k]
+	var condErr error
 	if !ok {
-		return ErrNotFound
+		condErr = ErrNotFound
 	}
-	if !cond(old) {
+	if !cond(old, condErr) {
 		return ErrCASCond
 	}
 	kv.values[k] = v

@@ -187,7 +187,7 @@ func BenchmarkCASTrue(b *testing.B) {
 	rg := New()
 	rg.Put(1, 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}) bool { return true })
+		rg.CAS(1, 2, func(interface{}, error) bool { return true })
 	}
 }
 
@@ -195,6 +195,6 @@ func BenchmarkCASFalse(b *testing.B) {
 	rg := New()
 	rg.Put(1, 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}) bool { return false })
+		rg.CAS(1, 2, func(interface{}, error) bool { return false })
 	}
 }
