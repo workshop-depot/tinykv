@@ -10,7 +10,7 @@ import (
 
 // KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
 type KV interface {
-	CAS(k, v interface{}, cond func(interface{}, error) bool) error
+	CAS(k, v interface{}, cond func(interface{}, error) bool, options ...PutOption) error
 	Delete(k interface{})
 	Get(k interface{}) (v interface{}, ok bool)
 	Put(k, v interface{}, options ...PutOption)
@@ -150,7 +150,7 @@ var (
 )
 
 // CAS performs a compare and swap based on a vlue-condition
-func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool) error {
+func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool, options ...PutOption) error {
 	kv.rwx.Lock()
 	defer kv.rwx.Unlock()
 	old, ok := kv.values[k]
@@ -162,6 +162,26 @@ func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool) error
 		return ErrCASCond
 	}
 	kv.values[k] = v
+
+	if len(options) == 0 {
+		return nil
+	}
+
+	var pc putConf
+	for _, opt := range options {
+		pc = opt(pc)
+	}
+
+	if pc.expiresAfter <= 0 {
+		return nil
+	}
+
+	kv.expiresAfter[k] = pc.expiresAfter
+	kv.expiresAt[k] = time.Now().Add(pc.expiresAfter)
+	if pc.isSliding {
+		kv.isSliding[k] = struct{}{}
+	}
+
 	return nil
 }
 
