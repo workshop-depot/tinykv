@@ -162,10 +162,24 @@ func BenchmarkGetSlidingTimeout(b *testing.B) {
 	}
 }
 
-func BenchmarkPut(b *testing.B) {
+func BenchmarkPutOne(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
 		rg.Put(1, 1)
+	}
+}
+
+func BenchmarkPutN(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Put(n, n)
+	}
+}
+
+func BenchmarkPutExpire(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Put(1, 1, ExpiresAfter(time.Second*10))
 	}
 }
 

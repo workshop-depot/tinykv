@@ -8,15 +8,18 @@ import (
 	"github.com/dc0d/supervisor"
 )
 
-// res.CAS
-// res.Delete
-// res.Get
-// res.Put
+// KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
+type KV interface {
+	CAS(k, v interface{}, cond func(interface{}) bool) error
+	Delete(k interface{})
+	Get(k interface{}) (v interface{}, ok bool)
+	Put(k, v interface{}, options ...PutOption)
+}
 
 //-----------------------------------------------------------------------------
 
-// KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
-type KV struct {
+// store is a registry for values (like/is a concurrent map) with timeout and sliding timeout
+type store struct {
 	ctx                context.Context
 	expirationInterval time.Duration
 	onExpire           func(k, v interface{})
@@ -30,29 +33,29 @@ type KV struct {
 
 //-----------------------------------------------------------------------------
 
-// Option for KV setup
-type Option func(*KV)
+// Option for store setup
+type Option func(*store)
 
 // Context sets the context
 func Context(ctx context.Context) Option {
-	return func(kv *KV) { kv.ctx = ctx }
+	return func(kv *store) { kv.ctx = ctx }
 }
 
 // OnExpire sets the onExpire func
 func OnExpire(onExpire func(k, v interface{})) Option {
-	return func(kv *KV) { kv.onExpire = onExpire }
+	return func(kv *store) { kv.onExpire = onExpire }
 }
 
 // ExpirationInterval sets the expirationInterval for its agent (goroutine)
 func ExpirationInterval(expirationInterval time.Duration) Option {
-	return func(kv *KV) { kv.expirationInterval = expirationInterval }
+	return func(kv *store) { kv.expirationInterval = expirationInterval }
 }
 
 //-----------------------------------------------------------------------------
 
-// New creates a new *KV
-func New(options ...Option) *KV {
-	res := &KV{
+// New creates a new *store
+func New(options ...Option) KV {
+	res := &store{
 		values:       make(map[interface{}]interface{}),
 		expiresAt:    make(map[interface{}]time.Time),
 		expiresAfter: make(map[interface{}]time.Duration),
@@ -72,7 +75,7 @@ func New(options ...Option) *KV {
 //-----------------------------------------------------------------------------
 
 // Get .
-func (kv *KV) Get(k interface{}) (interface{}, bool) {
+func (kv *store) Get(k interface{}) (interface{}, bool) {
 	slide := false
 	kv.rwx.RLock()
 	v, ok := kv.values[k]
@@ -114,8 +117,8 @@ func IsSliding(isSliding bool) PutOption {
 	}
 }
 
-// Put a (k, v) tuple in the KV store
-func (kv *KV) Put(k, v interface{}, options ...PutOption) {
+// Put a (k, v) tuple in the store store
+func (kv *store) Put(k, v interface{}, options ...PutOption) {
 	var pc putConf
 	for _, opt := range options {
 		pc = opt(pc)
@@ -147,7 +150,7 @@ var (
 )
 
 // CAS performs a compare and swap based on a vlue-condition
-func (kv *KV) CAS(k, v interface{}, cond func(interface{}) bool) error {
+func (kv *store) CAS(k, v interface{}, cond func(interface{}) bool) error {
 	kv.rwx.Lock()
 	defer kv.rwx.Unlock()
 	old, ok := kv.values[k]
@@ -164,13 +167,13 @@ func (kv *KV) CAS(k, v interface{}, cond func(interface{}) bool) error {
 //-----------------------------------------------------------------------------
 
 // Delete deletes an entry
-func (kv *KV) Delete(k interface{}) {
+func (kv *store) Delete(k interface{}) {
 	kv.rwx.Lock()
 	kv.deleteEntry(k)
 	kv.rwx.Unlock()
 }
 
-func (kv *KV) deleteEntry(k interface{}) {
+func (kv *store) deleteEntry(k interface{}) {
 	delete(kv.expiresAt, k)
 	delete(kv.expiresAfter, k)
 	delete(kv.isSliding, k)
@@ -179,7 +182,7 @@ func (kv *KV) deleteEntry(k interface{}) {
 
 //-----------------------------------------------------------------------------
 
-func (kv *KV) expireLoop() {
+func (kv *store) expireLoop() {
 	var done <-chan struct{}
 	if kv.ctx != nil {
 		// context.Context Docs: Successive calls to Done return the same value.
@@ -196,7 +199,7 @@ func (kv *KV) expireLoop() {
 	}
 }
 
-func (kv *KV) expireFunc() {
+func (kv *store) expireFunc() {
 	shouldExpire := kv.getThoseShouldExpire()
 	if len(shouldExpire) == 0 {
 		return
@@ -213,7 +216,7 @@ func (kv *KV) expireFunc() {
 	kv._notifyExpiration(shouldExpire)
 }
 
-func (kv *KV) getThoseShouldExpire() (list map[interface{}]interface{}) {
+func (kv *store) getThoseShouldExpire() (list map[interface{}]interface{}) {
 	list = make(map[interface{}]interface{})
 	kv.rwx.RLock()
 	defer kv.rwx.RUnlock()
@@ -226,7 +229,7 @@ func (kv *KV) getThoseShouldExpire() (list map[interface{}]interface{}) {
 	return
 }
 
-func (kv *KV) _notifyExpiration(expired map[interface{}]interface{}) {
+func (kv *store) _notifyExpiration(expired map[interface{}]interface{}) {
 	if kv.onExpire == nil {
 		return
 	}
