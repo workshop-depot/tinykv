@@ -139,6 +139,19 @@ func Test06(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func Test07(t *testing.T) {
+	assert := assert.New(t)
+
+	kv := New()
+	kv.Put(1, 1)
+	v, ok := kv.Take(1)
+	assert.True(ok)
+	assert.Equal(1, v)
+
+	_, ok = kv.Get(1)
+	assert.False(ok)
+}
+
 func BenchmarkGetNoValue(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {

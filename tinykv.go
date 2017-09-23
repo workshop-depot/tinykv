@@ -14,6 +14,7 @@ type KV interface {
 	Delete(k interface{})
 	Get(k interface{}) (v interface{}, ok bool)
 	Put(k, v interface{}, options ...PutOption)
+	Take(k interface{}) (v interface{}, ok bool)
 }
 
 //-----------------------------------------------------------------------------
@@ -65,7 +66,7 @@ func New(options ...Option) KV {
 		opt(res)
 	}
 	if res.expirationInterval <= 0 {
-		res.expirationInterval = 30
+		res.expirationInterval = 30 * time.Second
 	}
 	go res.expireLoop()
 
@@ -263,6 +264,19 @@ func (kv *store) _notifyExpiration(expired map[interface{}]interface{}) {
 			})
 		}
 	}()
+}
+
+//-----------------------------------------------------------------------------
+
+// Take .
+func (kv *store) Take(k interface{}) (v interface{}, ok bool) {
+	kv.rwx.Lock()
+	defer kv.rwx.Unlock()
+	v, ok = kv.values[k]
+	if ok {
+		kv.deleteEntry(k)
+	}
+	return v, ok
 }
 
 //-----------------------------------------------------------------------------
