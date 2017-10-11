@@ -139,6 +139,19 @@ func Test06(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func Test07(t *testing.T) {
+	assert := assert.New(t)
+
+	kv := New()
+	kv.Put(1, 1)
+	v, ok := kv.Take(1)
+	assert.True(ok)
+	assert.Equal(1, v)
+
+	_, ok = kv.Get(1)
+	assert.False(ok)
+}
+
 func BenchmarkGetNoValue(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
@@ -162,10 +175,24 @@ func BenchmarkGetSlidingTimeout(b *testing.B) {
 	}
 }
 
-func BenchmarkPut(b *testing.B) {
+func BenchmarkPutOne(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
 		rg.Put(1, 1)
+	}
+}
+
+func BenchmarkPutN(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Put(n, n)
+	}
+}
+
+func BenchmarkPutExpire(b *testing.B) {
+	rg := New()
+	for n := 0; n < b.N; n++ {
+		rg.Put(1, 1, ExpiresAfter(time.Second*10))
 	}
 }
 
@@ -173,7 +200,7 @@ func BenchmarkCASTrue(b *testing.B) {
 	rg := New()
 	rg.Put(1, 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}) bool { return true })
+		rg.CAS(1, 2, func(interface{}, error) bool { return true })
 	}
 }
 
@@ -181,6 +208,6 @@ func BenchmarkCASFalse(b *testing.B) {
 	rg := New()
 	rg.Put(1, 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}) bool { return false })
+		rg.CAS(1, 2, func(interface{}, error) bool { return false })
 	}
 }
