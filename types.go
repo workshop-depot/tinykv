@@ -160,6 +160,7 @@ func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool, optio
 			value: v,
 		}
 	}
+	e.slide()
 	if pc.expiresAfter > 0 {
 		e.timeout = new(timeout)
 		e.expiresAfter = pc.expiresAfter

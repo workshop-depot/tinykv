@@ -167,6 +167,81 @@ func Test08(t *testing.T) {
 	assert.Equal("G", v)
 }
 
+func Test09(t *testing.T) {
+	assert := assert.New(t)
+
+	e1 := errorf("ERR")
+	e2 := errorf("ERR")
+	assert.Equal(e1, e2)
+
+	e2 = errorf("ERR 2")
+	assert.NotEqual(e1, e2)
+}
+
+func Test10(t *testing.T) {
+	assert := assert.New(t)
+
+	key := "QQG"
+
+	kv := New(ExpirationInterval(time.Millisecond))
+	err := kv.CAS(
+		key, "G",
+		func(interface{}, error) bool { return true },
+		ExpiresAfter(time.Millisecond*30))
+	assert.NoError(err)
+
+	v, ok := kv.Get(key)
+	assert.True(ok)
+	assert.Equal("G", v)
+
+	<-time.After(time.Millisecond * 20)
+
+	err = kv.CAS(key, "OK", func(currentValue interface{}, err error) bool {
+		assert.NoError(err)
+		assert.Equal("G", currentValue)
+		return true
+	})
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 11)
+	_, ok = kv.Get(key)
+	assert.False(ok)
+}
+
+func Test11(t *testing.T) {
+	assert := assert.New(t)
+
+	key := "QQG"
+
+	kv := New(ExpirationInterval(time.Millisecond))
+	err := kv.CAS(
+		key, "G",
+		func(interface{}, error) bool { return true },
+		IsSliding(true),
+		ExpiresAfter(time.Millisecond*15))
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 12)
+
+	v, ok := kv.Get(key)
+	assert.True(ok)
+	assert.Equal("G", v)
+
+	<-time.After(time.Millisecond * 12)
+
+	err = kv.CAS(key, "OK", func(currentValue interface{}, err error) bool {
+		assert.NoError(err)
+		assert.Equal("G", currentValue)
+		return true
+	})
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 12)
+
+	_, ok = kv.Get(key)
+	assert.True(ok)
+}
+
 func BenchmarkGetNoValue(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
