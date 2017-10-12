@@ -152,6 +152,21 @@ func Test07(t *testing.T) {
 	assert.False(ok)
 }
 
+func Test08(t *testing.T) {
+	assert := assert.New(t)
+
+	kv := New()
+	err := kv.CAS(
+		"QQG", "G",
+		func(interface{}, error) bool { return true },
+		ExpiresAfter(time.Millisecond))
+	assert.NoError(err)
+
+	v, ok := kv.Take("QQG")
+	assert.True(ok)
+	assert.Equal("G", v)
+}
+
 func BenchmarkGetNoValue(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
