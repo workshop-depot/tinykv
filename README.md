@@ -17,6 +17,17 @@ Get it using:
 $ go get gopkg.in/dc0d/tinykv.v2
 ```
 
+# v3
+
+* Using only `string` keys,
+* Simplifying the interface,
+
+Get it using:
+
+```bash
+$ go get gopkg.in/dc0d/tinykv.v3
+```
+
 Benchmarks:
 
 ```
