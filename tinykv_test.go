@@ -178,8 +178,8 @@ func Test08(t *testing.T) {
 	assert.Equal("G", v)
 }
 
-// should not preserve timeouts unless explicitly are set (again)
-func Test09ShouldNotPreserveTimeouts(t *testing.T) {
+// ignore new timeouts when cas, and just use the old ones from the old value (if exists)
+func Test09IgnoreTimeoutParamsOnCAS(t *testing.T) {
 	assert := assert.New(t)
 
 	key := "QQG"
