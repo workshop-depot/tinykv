@@ -8,8 +8,6 @@ import (
 	"github.com/dc0d/supervisor"
 )
 
-var _ KV = &store{}
-
 //-----------------------------------------------------------------------------
 
 type timeout struct {
@@ -34,6 +32,9 @@ func (to *timeout) slide() {
 		return
 	}
 	if !to.isSliding {
+		return
+	}
+	if to.expiresAfter <= 0 {
 		return
 	}
 	to.expiresAt = time.Now().Add(to.expiresAfter)
@@ -117,9 +118,6 @@ func (kv *store) Put(k string, v interface{}, options ...PutOption) error {
 	for _, v := range options {
 		v(opt)
 	}
-	if opt.expiresAfter < 0 {
-		return ErrNegativeExpiresAfter
-	}
 	e := &entry{
 		value: v,
 	}
@@ -127,7 +125,7 @@ func (kv *store) Put(k string, v interface{}, options ...PutOption) error {
 		to := new(timeout)
 		to.expiresAfter = opt.expiresAfter
 		to.isSliding = opt.isSliding
-		to.slide()
+		to.expiresAt = time.Now().Add(to.expiresAfter)
 		e.timeout = to
 	}
 	kv.mx.Lock()
@@ -147,6 +145,11 @@ func (kv *store) cas(k string, e *entry, casFunc func(interface{}, bool) bool) e
 	}
 	if !casFunc(oldValue, ok) {
 		return ErrCASCond
+	}
+	if ok && old != nil {
+		old.slide()
+		old.value = e.value
+		e = old
 	}
 	kv.kv[k] = e
 	return nil

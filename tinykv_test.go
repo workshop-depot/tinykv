@@ -3,6 +3,7 @@ package tinykv
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,100 +11,108 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var _ KV = &store{}
+
 func Test01(t *testing.T) {
+	assert := assert.New(t)
 	rg := New(ExpirationInterval(time.Millisecond * 30))
 
-	rg.Put(1, 1)
-	v, ok := rg.Get(1)
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
+	rg.Put("1", 1)
+	v, ok := rg.Get("1")
+	assert.True(ok)
+	assert.Equal(1, v)
 
-	rg.Put(2, 2, ExpiresAfter(time.Millisecond*50))
-	v, ok = rg.Get(2)
-	assert.True(t, ok)
-	assert.Equal(t, 2, v)
+	rg.Put("2", 2, ExpiresAfter(time.Millisecond*50))
+	v, ok = rg.Get("2")
+	assert.True(ok)
+	assert.Equal(2, v)
 	<-time.After(time.Millisecond * 100)
 
-	v, ok = rg.Get(2)
-	assert.False(t, ok)
-	assert.NotEqual(t, 2, v)
+	v, ok = rg.Get("2")
+	assert.False(ok)
+	assert.NotEqual(2, v)
 }
 
 func Test02(t *testing.T) {
+	assert := assert.New(t)
 	rg := New(ExpirationInterval(time.Millisecond * 30))
 
-	rg.Put(1, 1)
-	v, ok := rg.Get(1)
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
+	rg.Put("1", 1)
+	v, ok := rg.Get("1")
+	assert.True(ok)
+	assert.Equal(1, v)
 
-	rg.Put(1, 1, ExpiresAfter(time.Millisecond*50), IsSliding(true))
+	rg.Put("1", 1, ExpiresAfter(time.Millisecond*50), IsSliding(true))
 	<-time.After(time.Millisecond * 40)
-	v, ok = rg.Get(1)
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
+	v, ok = rg.Get("1")
+	assert.True(ok)
+	assert.Equal(1, v)
 	<-time.After(time.Millisecond * 10)
-	v, ok = rg.Get(1)
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
+	v, ok = rg.Get("1")
+	assert.True(ok)
+	assert.Equal(1, v)
 	<-time.After(time.Millisecond * 10)
-	v, ok = rg.Get(1)
-	assert.True(t, ok)
-	assert.Equal(t, 1, v)
+	v, ok = rg.Get("1")
+	assert.True(ok)
+	assert.Equal(1, v)
 
 	<-time.After(time.Millisecond * 100)
 
-	v, ok = rg.Get(1)
-	assert.False(t, ok)
-	assert.NotEqual(t, 1, v)
+	v, ok = rg.Get("1")
+	assert.False(ok)
+	assert.NotEqual(1, v)
 }
 
 func Test03(t *testing.T) {
+	assert := assert.New(t)
 	var putAt time.Time
 	var elapsed time.Duration
 	kv := New(
 		ExpirationInterval(time.Millisecond*50),
-		OnExpire(func(k, v interface{}) {
+		OnExpire(func(k string, v interface{}) {
 			elapsed = time.Now().Sub(putAt)
 		}))
 
 	putAt = time.Now()
-	kv.Put(1, 1, ExpiresAfter(time.Millisecond*10))
+	kv.Put("1", 1, ExpiresAfter(time.Millisecond*10))
 
 	<-time.After(time.Millisecond * 100)
-	assert.WithinDuration(t, putAt, putAt.Add(elapsed), time.Millisecond*60)
+	assert.WithinDuration(putAt, putAt.Add(elapsed), time.Millisecond*60)
 }
 
 func Test04(t *testing.T) {
+	assert := assert.New(t)
 	kv := New(
 		ExpirationInterval(time.Millisecond*10),
-		OnExpire(func(k, v interface{}) {
+		OnExpire(func(k string, v interface{}) {
 			t.Fatal(k, v)
 		}))
 
-	kv.Put(1, 1, ExpiresAfter(time.Millisecond*10000))
+	err := kv.Put("1", 1, ExpiresAfter(time.Millisecond*10000))
+	assert.NoError(err)
 	<-time.After(time.Millisecond * 50)
-	kv.Delete(1)
-	kv.Delete(1)
+	kv.Delete("1")
+	kv.Delete("1")
 
 	<-time.After(time.Millisecond * 100)
-	_, ok := kv.Get(1)
-	assert.False(t, ok)
+	_, ok := kv.Get("1")
+	assert.False(ok)
 }
 
 func Test05(t *testing.T) {
+	assert := assert.New(t)
 	N := 10000
 	var cnt int64
 	kv := New(
 		ExpirationInterval(time.Millisecond*10),
-		OnExpire(func(k, v interface{}) {
+		OnExpire(func(k string, v interface{}) {
 			atomic.AddInt64(&cnt, 1)
 		}))
 
 	src := rand.NewSource(time.Now().Unix())
 	rnd := rand.New(src)
 	for i := 0; i < N; i++ {
-		k := i
+		k := fmt.Sprintf("%d", i)
 		kv.Put(k, fmt.Sprintf("VAL::%v", k),
 			ExpiresAfter(
 				time.Millisecond*time.Duration(rnd.Intn(10)+1)))
@@ -111,44 +120,46 @@ func Test05(t *testing.T) {
 
 	<-time.After(time.Millisecond * 100)
 	for i := 0; i < N; i++ {
-		k := i
+		k := fmt.Sprintf("%d", i)
 		_, ok := kv.Get(k)
-		assert.False(t, ok)
+		assert.False(ok)
 	}
 }
 
 func Test06(t *testing.T) {
+	assert := assert.New(t)
 	kv := New(
 		ExpirationInterval(time.Millisecond),
-		OnExpire(func(k, v interface{}) {
+		OnExpire(func(k string, v interface{}) {
 			t.Fail()
 		}))
 
-	kv.Put(1, 1, ExpiresAfter(10*time.Millisecond), IsSliding(true))
+	err := kv.Put("1", 1, ExpiresAfter(10*time.Millisecond), IsSliding(true))
+	assert.NoError(err)
 
 	for i := 0; i < 100; i++ {
-		_, ok := kv.Get(1)
-		assert.True(t, ok)
+		_, ok := kv.Get("1")
+		assert.True(ok)
 		<-time.After(time.Millisecond)
 	}
-	kv.Delete(1)
+	kv.Delete("1")
 
 	<-time.After(time.Millisecond * 30)
 
-	_, ok := kv.Get(1)
-	assert.False(t, ok)
+	_, ok := kv.Get("1")
+	assert.False(ok)
 }
 
 func Test07(t *testing.T) {
 	assert := assert.New(t)
 
 	kv := New()
-	kv.Put(1, 1)
-	v, ok := kv.Take(1)
+	kv.Put("1", 1)
+	v, ok := kv.Take("1")
 	assert.True(ok)
 	assert.Equal(1, v)
 
-	_, ok = kv.Get(1)
+	_, ok = kv.Get("1")
 	assert.False(ok)
 }
 
@@ -156,9 +167,9 @@ func Test08(t *testing.T) {
 	assert := assert.New(t)
 
 	kv := New()
-	err := kv.CAS(
+	err := kv.Put(
 		"QQG", "G",
-		func(interface{}, error) bool { return true },
+		CAS(func(interface{}, bool) bool { return true }),
 		ExpiresAfter(time.Millisecond))
 	assert.NoError(err)
 
@@ -167,26 +178,16 @@ func Test08(t *testing.T) {
 	assert.Equal("G", v)
 }
 
-func Test09(t *testing.T) {
-	assert := assert.New(t)
-
-	e1 := errorf("ERR")
-	e2 := errorf("ERR")
-	assert.Equal(e1, e2)
-
-	e2 = errorf("ERR 2")
-	assert.NotEqual(e1, e2)
-}
-
-func Test10(t *testing.T) {
+// should not preserve timeouts unless explicitly are set (again)
+func Test09ShouldNotPreserveTimeouts(t *testing.T) {
 	assert := assert.New(t)
 
 	key := "QQG"
 
 	kv := New(ExpirationInterval(time.Millisecond))
-	err := kv.CAS(
+	err := kv.Put(
 		key, "G",
-		func(interface{}, error) bool { return true },
+		CAS(func(interface{}, bool) bool { return true }),
 		ExpiresAfter(time.Millisecond*30))
 	assert.NoError(err)
 
@@ -196,27 +197,28 @@ func Test10(t *testing.T) {
 
 	<-time.After(time.Millisecond * 20)
 
-	err = kv.CAS(key, "OK", func(currentValue interface{}, err error) bool {
-		assert.NoError(err)
-		assert.Equal("G", currentValue)
-		return true
-	})
+	err = kv.Put(key, "OK",
+		CAS(func(currentValue interface{}, found bool) bool {
+			assert.True(found)
+			assert.Equal("G", currentValue)
+			return true
+		}))
 	assert.NoError(err)
 
-	<-time.After(time.Millisecond * 11)
+	<-time.After(time.Millisecond * 12)
 	_, ok = kv.Get(key)
 	assert.False(ok)
 }
 
-func Test11(t *testing.T) {
+func Test10(t *testing.T) {
 	assert := assert.New(t)
 
 	key := "QQG"
 
 	kv := New(ExpirationInterval(time.Millisecond))
-	err := kv.CAS(
+	err := kv.Put(
 		key, "G",
-		func(interface{}, error) bool { return true },
+		CAS(func(interface{}, bool) bool { return true }),
 		IsSliding(true),
 		ExpiresAfter(time.Millisecond*15))
 	assert.NoError(err)
@@ -229,11 +231,12 @@ func Test11(t *testing.T) {
 
 	<-time.After(time.Millisecond * 12)
 
-	err = kv.CAS(key, "OK", func(currentValue interface{}, err error) bool {
-		assert.NoError(err)
-		assert.Equal("G", currentValue)
-		return true
-	})
+	err = kv.Put(key, "OK",
+		CAS(func(currentValue interface{}, found bool) bool {
+			assert.True(found)
+			assert.Equal("G", currentValue)
+			return true
+		}))
 	assert.NoError(err)
 
 	<-time.After(time.Millisecond * 12)
@@ -245,59 +248,60 @@ func Test11(t *testing.T) {
 func BenchmarkGetNoValue(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
-		rg.Get(1)
+		rg.Get("1")
 	}
 }
 
 func BenchmarkGetValue(b *testing.B) {
 	rg := New()
-	rg.Put(1, 1)
+	rg.Put("1", 1)
 	for n := 0; n < b.N; n++ {
-		rg.Get(1)
+		rg.Get("1")
 	}
 }
 
 func BenchmarkGetSlidingTimeout(b *testing.B) {
 	rg := New()
-	rg.Put(1, 1, ExpiresAfter(time.Second*10))
+	rg.Put("1", 1, ExpiresAfter(time.Second*10))
 	for n := 0; n < b.N; n++ {
-		rg.Get(1)
+		rg.Get("1")
 	}
 }
 
 func BenchmarkPutOne(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
-		rg.Put(1, 1)
+		rg.Put("1", 1)
 	}
 }
 
 func BenchmarkPutN(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
-		rg.Put(n, n)
+		k := strconv.Itoa(n)
+		rg.Put(k, n)
 	}
 }
 
 func BenchmarkPutExpire(b *testing.B) {
 	rg := New()
 	for n := 0; n < b.N; n++ {
-		rg.Put(1, 1, ExpiresAfter(time.Second*10))
+		rg.Put("1", 1, ExpiresAfter(time.Second*10))
 	}
 }
 
 func BenchmarkCASTrue(b *testing.B) {
 	rg := New()
-	rg.Put(1, 1)
+	rg.Put("1", 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}, error) bool { return true })
+		rg.Put("1", 2, CAS(func(interface{}, bool) bool { return true }))
 	}
 }
 
 func BenchmarkCASFalse(b *testing.B) {
 	rg := New()
-	rg.Put(1, 1)
+	rg.Put("1", 1)
 	for n := 0; n < b.N; n++ {
-		rg.CAS(1, 2, func(interface{}, error) bool { return false })
+		rg.Put("1", 2, CAS(func(interface{}, bool) bool { return false }))
 	}
 }

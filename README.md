@@ -21,12 +21,12 @@ Benchmarks:
 
 ```
 $ go test -bench=.
-BenchmarkGetNoValue-8          	20000000	        64.6 ns/op
-BenchmarkGetValue-8            	20000000	        93.8 ns/op
-BenchmarkGetSlidingTimeout-8   	20000000	        95.8 ns/op
-BenchmarkPutOne-8              	10000000	        176 ns/op
-BenchmarkPutN-8                	 2000000	        729 ns/op
-BenchmarkPutExpire-8           	 5000000	        403 ns/op
-BenchmarkCASTrue-8             	10000000	        135 ns/op
-BenchmarkCASFalse-8            	20000000	        93.6 ns/op
+BenchmarkGetNoValue-8          	20000000	        64.4 ns/op
+BenchmarkGetValue-8            	20000000	        72.2 ns/op
+BenchmarkGetSlidingTimeout-8   	20000000	        72.3 ns/op
+BenchmarkPutOne-8              	10000000	       184 ns/op
+BenchmarkPutN-8                	 2000000	       723 ns/op
+BenchmarkPutExpire-8           	 5000000	       401 ns/op
+BenchmarkCASTrue-8             	 5000000	       288 ns/op
+BenchmarkCASFalse-8            	10000000	       277 ns/op
 ```
