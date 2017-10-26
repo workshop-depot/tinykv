@@ -8,199 +8,25 @@ import (
 	"github.com/dc0d/supervisor"
 )
 
-//-----------------------------------------------------------------------------
-
-// Option for store setup
-type Option func(*store)
-
-// OnExpire sets the onExpire func
-func OnExpire(onExpire func(k, v interface{})) Option {
-	return func(kv *store) { kv.onExpire = onExpire }
-}
-
-// Context sets the context
-func Context(ctx context.Context) Option {
-	return func(kv *store) { kv.ctx = ctx }
-}
-
-// ExpirationInterval sets the expirationInterval for its agent (goroutine)
-func ExpirationInterval(expirationInterval time.Duration) Option {
-	return func(kv *store) { kv.expirationInterval = expirationInterval }
-}
-
-//-----------------------------------------------------------------------------
-
-// New creates a new *store
-func New(options ...Option) KV {
-	res := &store{
-		kv: make(map[interface{}]*entry),
-	}
-	for _, opt := range options {
-		opt(res)
-	}
-	if res.expirationInterval <= 0 {
-		res.expirationInterval = 30 * time.Second
-	}
-	go res.expireLoop()
-	return res
-}
-
-//-----------------------------------------------------------------------------
-
-// KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
-type KV interface {
-	CAS(k, v interface{}, cond func(interface{}, error) bool, options ...PutOption) error
-	Delete(k interface{})
-	Get(k interface{}) (v interface{}, ok bool)
-	Put(k, v interface{}, options ...PutOption)
-	Take(k interface{}) (v interface{}, ok bool)
-}
-
-//-----------------------------------------------------------------------------
-
-// Get .
-func (kv *store) Get(k interface{}) (interface{}, bool) {
-	kv.mx.Lock()
-	defer kv.mx.Unlock()
-
-	e, ok := kv.kv[k]
-	if !ok {
-		return nil, ok
-	}
-	e.slide()
-	return e.value, ok
-}
-
-//-----------------------------------------------------------------------------
-
-type putConf struct {
-	expiresAfter time.Duration
-	isSliding    bool
-}
-
-// PutOption extra options for put
-type PutOption func(putConf) putConf
-
-// ExpiresAfter entry will expire after this time
-func ExpiresAfter(expiresAfter time.Duration) PutOption {
-	return func(opt putConf) putConf {
-		opt.expiresAfter = expiresAfter
-		return opt
-	}
-}
-
-// IsSliding sets if the entry would get expired in a sliding manner
-func IsSliding(isSliding bool) PutOption {
-	return func(opt putConf) putConf {
-		opt.isSliding = isSliding
-		return opt
-	}
-}
-
-// Put a (k, v) tuple in the store store
-func (kv *store) Put(k, v interface{}, options ...PutOption) {
-	var pc putConf
-	for _, opt := range options {
-		pc = opt(pc)
-	}
-
-	e := &entry{
-		key:   k,
-		value: v,
-	}
-
-	kv.mx.Lock()
-	defer kv.mx.Unlock()
-
-	if pc.expiresAfter > 0 {
-		e.timeout = new(timeout)
-		e.expiresAfter = pc.expiresAfter
-		e.isSliding = pc.isSliding
-		e.expiresAt = time.Now().Add(pc.expiresAfter)
-	}
-
-	kv.kv[k] = e
-}
-
-//-----------------------------------------------------------------------------
-
-// errors
-var (
-	ErrNotFound = errorf("NOT_FOUND")
-	ErrCASCond  = errorf("CAS_COND_FAILED")
-)
-
-// CAS performs a compare and swap based on a vlue-condition
-func (kv *store) CAS(k, v interface{}, cond func(interface{}, error) bool, options ...PutOption) error {
-	kv.mx.Lock()
-	defer kv.mx.Unlock()
-
-	old, ok := kv.kv[k]
-	var condErr error
-	if !ok {
-		condErr = ErrNotFound
-	}
-	var oldValue interface{}
-	if old != nil {
-		oldValue = old.value
-	}
-	if !cond(oldValue, condErr) {
-		return ErrCASCond
-	}
-
-	var pc putConf
-	for _, opt := range options {
-		pc = opt(pc)
-	}
-
-	e := old
-	if e == nil {
-		e = &entry{
-			key:   k,
-			value: v,
-		}
-	}
-	e.slide()
-	if pc.expiresAfter > 0 {
-		e.timeout = new(timeout)
-		e.expiresAfter = pc.expiresAfter
-		e.isSliding = pc.isSliding
-		e.expiresAt = time.Now().Add(pc.expiresAfter)
-	}
-	kv.kv[k] = e
-
-	return nil
-}
-
-//-----------------------------------------------------------------------------
-
-// Delete deletes an entry
-func (kv *store) Delete(k interface{}) {
-	kv.mx.Lock()
-	defer kv.mx.Unlock()
-	delete(kv.kv, k)
-}
-
-//-----------------------------------------------------------------------------
-
-// Take .
-func (kv *store) Take(k interface{}) (interface{}, bool) {
-	kv.mx.Lock()
-	defer kv.mx.Unlock()
-	e, ok := kv.kv[k]
-	if ok {
-		delete(kv.kv, k)
-		return e.value, ok
-	}
-	return nil, ok
-}
+var _ KV = &store{}
 
 //-----------------------------------------------------------------------------
 
 type timeout struct {
-	expiresAt    time.Time // is not the exact time, but is the time window
+	expiresAt    time.Time
 	expiresAfter time.Duration
 	isSliding    bool
+}
+
+func newTimeout(
+	expiresAt time.Time,
+	expiresAfter time.Duration,
+	isSliding bool) *timeout {
+	return &timeout{
+		expiresAt:    expiresAt,
+		expiresAfter: expiresAfter,
+		isSliding:    isSliding,
+	}
 }
 
 func (to *timeout) slide() {
@@ -224,7 +50,17 @@ func (to *timeout) expired() bool {
 
 type entry struct {
 	*timeout
-	key, value interface{}
+	value interface{}
+}
+
+//-----------------------------------------------------------------------------
+
+// KV is a registry for values (like/is a concurrent map) with timeout and sliding timeout
+type KV interface {
+	Delete(k string)
+	Get(k string) (v interface{}, ok bool)
+	Put(k string, v interface{}, options ...PutOption) error
+	Take(k string) (v interface{}, ok bool)
 }
 
 //-----------------------------------------------------------------------------
@@ -233,14 +69,151 @@ type entry struct {
 type store struct {
 	ctx                context.Context
 	expirationInterval time.Duration
-	onExpire           func(k, v interface{})
+	onExpire           func(k string, v interface{})
 
 	mx sync.Mutex
-	kv map[interface{}]*entry
+	kv map[string]*entry
+}
 
-	// timeWindows map[time.Time][]interface{} // PROBLEM: there will be gaps and there are some absent time windows'
-	// use a sorted slice instead and we need GC with expirationInterval time.Duration anyway
-	// and the context to stop the loop
+// New creates a new *store
+func New(options ...Option) KV {
+	res := &store{
+		kv: make(map[string]*entry),
+	}
+	for _, opt := range options {
+		opt(res)
+	}
+	if res.expirationInterval <= 0 {
+		res.expirationInterval = 30 * time.Second
+	}
+	go res.expireLoop()
+	return res
+}
+
+// Delete deletes an entry
+func (kv *store) Delete(k string) {
+	kv.mx.Lock()
+	defer kv.mx.Unlock()
+	delete(kv.kv, k)
+}
+
+// Get gets an entry from KV store
+// and if a sliding timeout is set, it will be slided
+func (kv *store) Get(k string) (interface{}, bool) {
+	kv.mx.Lock()
+	defer kv.mx.Unlock()
+
+	e, ok := kv.kv[k]
+	if !ok {
+		return nil, ok
+	}
+	e.slide()
+	return e.value, ok
+}
+
+// Put puts an entry inside kv store with provided options
+func (kv *store) Put(k string, v interface{}, options ...PutOption) error {
+	opt := &putOpt{}
+	for _, v := range options {
+		v(opt)
+	}
+	if opt.expiresAfter < 0 {
+		return ErrNegativeExpiresAfter
+	}
+	e := &entry{
+		value: v,
+	}
+	if opt.expiresAfter > 0 {
+		to := new(timeout)
+		to.expiresAfter = opt.expiresAfter
+		to.isSliding = opt.isSliding
+		to.slide()
+		e.timeout = to
+	}
+	kv.mx.Lock()
+	defer kv.mx.Unlock()
+	if opt.cas != nil {
+		return kv.cas(k, e, opt.cas)
+	}
+	kv.kv[k] = e
+	return nil
+}
+
+func (kv *store) cas(k string, e *entry, casFunc func(interface{}, bool) bool) error {
+	old, ok := kv.kv[k]
+	var oldValue interface{}
+	if ok && old != nil {
+		oldValue = old.value
+	}
+	if !casFunc(oldValue, ok) {
+		return ErrCASCond
+	}
+	kv.kv[k] = e
+	return nil
+}
+
+// Take takes an entry out of kv store
+func (kv *store) Take(k string) (interface{}, bool) {
+	kv.mx.Lock()
+	defer kv.mx.Unlock()
+	e, ok := kv.kv[k]
+	if ok {
+		delete(kv.kv, k)
+		return e.value, ok
+	}
+	return nil, ok
+}
+
+//-----------------------------------------------------------------------------
+
+type putOpt struct {
+	expiresAfter time.Duration
+	isSliding    bool
+	cas          func(interface{}, bool) bool
+}
+
+// PutOption extra options for put
+type PutOption func(*putOpt)
+
+// ExpiresAfter entry will expire after this time
+func ExpiresAfter(expiresAfter time.Duration) PutOption {
+	return func(opt *putOpt) {
+		opt.expiresAfter = expiresAfter
+	}
+}
+
+// IsSliding sets if the entry would get expired in a sliding manner
+func IsSliding(isSliding bool) PutOption {
+	return func(opt *putOpt) {
+		opt.isSliding = isSliding
+	}
+}
+
+// CAS for performing a compare and swap
+func CAS(cas func(oldValue interface{}, found bool) bool) PutOption {
+	return func(opt *putOpt) {
+		opt.cas = cas
+	}
+}
+
+//-----------------------------------------------------------------------------
+
+// Option for store setup
+type Option func(*store)
+
+// OnExpire sets the onExpire func
+func OnExpire(onExpire func(k string, v interface{})) Option {
+	return func(kv *store) { kv.onExpire = onExpire }
+}
+
+// Context sets the context
+func Context(ctx context.Context) Option {
+	return func(kv *store) { kv.ctx = ctx }
+}
+
+// ExpirationInterval sets the expirationInterval for its agent (goroutine)
+func ExpirationInterval(expirationInterval time.Duration) Option {
+	return func(kv *store) { kv.expirationInterval = expirationInterval }
 }
 
 //-----------------------------------------------------------------------------
@@ -267,7 +240,7 @@ func (kv *store) expireFunc() {
 	kv.mx.Lock()
 	defer kv.mx.Unlock()
 
-	expired := make(map[interface{}]interface{})
+	expired := make(map[string]interface{})
 	for k, v := range kv.kv {
 		if !v.expired() {
 			continue
@@ -290,12 +263,5 @@ func (kv *store) expireFunc() {
 		}
 	}()
 }
-
-//-----------------------------------------------------------------------------
-
-// errString a string that inplements the error interface
-type errString string
-
-func (v errString) Error() string { return string(v) }
 
 //-----------------------------------------------------------------------------
