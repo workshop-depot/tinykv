@@ -3,7 +3,7 @@ package tinykv
 import (
 	"time"
 
-	"github.com/dc0d/errgo/sentinel"
+	"github.com/pkg/errors"
 )
 
 // constants
@@ -13,5 +13,5 @@ const (
 
 // errors
 var (
-	ErrCASCond = sentinel.Errorf("CAS_COND_FAILED")
+	ErrCASCond = errors.Errorf("CAS_COND_FAILED")
 )

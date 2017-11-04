@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dc0d/supervisor"
+	"github.com/dc0d/retry"
 )
 
 //-----------------------------------------------------------------------------
@@ -259,7 +259,7 @@ func (kv *store) expireFunc() {
 	go func() {
 		for k, v := range expired {
 			k, v := k, v
-			supervisor.Supervise(func() error {
+			retry.Try(func() error {
 				kv.onExpire(k, v)
 				return nil
 			})
