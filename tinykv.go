@@ -79,12 +79,13 @@ type store struct {
 }
 
 // New creates a new *store
-func New(options ...Option) KV {
+func New(expirationInterval time.Duration, onExpire ...func(k string, v interface{})) KV {
 	res := &store{
-		kv: make(map[string]*entry),
+		kv:                 make(map[string]*entry),
+		expirationInterval: expirationInterval,
 	}
-	for _, opt := range options {
-		opt(res)
+	if len(onExpire) > 0 && onExpire[0] != nil {
+		res.onExpire = onExpire[0]
 	}
 	if res.expirationInterval <= 0 {
 		res.expirationInterval = 30 * time.Second
@@ -205,21 +206,6 @@ func CAS(cas func(oldValue interface{}, found bool) bool) PutOption {
 	return func(opt *putOpt) {
 		opt.cas = cas
 	}
-}
-
-//-----------------------------------------------------------------------------
-
-// Option for store setup
-type Option func(*store)
-
-// OnExpire sets the onExpire func
-func OnExpire(onExpire func(k string, v interface{})) Option {
-	return func(kv *store) { kv.onExpire = onExpire }
-}
-
-// ExpirationInterval sets the expirationInterval for its agent (goroutine)
-func ExpirationInterval(expirationInterval time.Duration) Option {
-	return func(kv *store) { kv.expirationInterval = expirationInterval }
 }
 
 //-----------------------------------------------------------------------------
