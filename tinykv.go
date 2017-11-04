@@ -62,6 +62,7 @@ type KV interface {
 	Get(k string) (v interface{}, ok bool)
 	Put(k string, v interface{}, options ...PutOption) error
 	Take(k string) (v interface{}, ok bool)
+	Stop()
 }
 
 //-----------------------------------------------------------------------------
@@ -69,6 +70,7 @@ type KV interface {
 // store is a registry for values (like/is a concurrent map) with timeout and sliding timeout
 type store struct {
 	ctx                context.Context
+	cancel             context.CancelFunc
 	expirationInterval time.Duration
 	onExpire           func(k string, v interface{})
 
@@ -87,8 +89,14 @@ func New(options ...Option) KV {
 	if res.expirationInterval <= 0 {
 		res.expirationInterval = 30 * time.Second
 	}
+	res.ctx, res.cancel = context.WithCancel(context.Background())
 	go res.expireLoop()
 	return res
+}
+
+// Stop stops the goroutine
+func (kv *store) Stop() {
+	kv.cancel()
 }
 
 // Delete deletes an entry
@@ -209,11 +217,6 @@ func OnExpire(onExpire func(k string, v interface{})) Option {
 	return func(kv *store) { kv.onExpire = onExpire }
 }
 
-// Context sets the context
-func Context(ctx context.Context) Option {
-	return func(kv *store) { kv.ctx = ctx }
-}
-
 // ExpirationInterval sets the expirationInterval for its agent (goroutine)
 func ExpirationInterval(expirationInterval time.Duration) Option {
 	return func(kv *store) { kv.expirationInterval = expirationInterval }
@@ -222,15 +225,9 @@ func ExpirationInterval(expirationInterval time.Duration) Option {
 //-----------------------------------------------------------------------------
 
 func (kv *store) expireLoop() {
-	var done <-chan struct{}
-	if kv.ctx != nil {
-		// context.Context Docs: Successive calls to Done return the same value.
-		// so it's OK.
-		done = kv.ctx.Done()
-	}
 	for {
 		select {
-		case <-done:
+		case <-kv.ctx.Done():
 			return
 		case <-time.After(kv.expirationInterval):
 			kv.expireFunc()

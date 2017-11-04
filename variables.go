@@ -13,5 +13,5 @@ const (
 
 // errors
 var (
-	ErrCASCond = errors.Errorf("CAS_COND_FAILED")
+	ErrCASCond = errors.Errorf("CAS COND FAILED")
 )
