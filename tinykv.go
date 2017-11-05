@@ -17,14 +17,13 @@ type timeout struct {
 }
 
 func newTimeout(
-	expiresAt time.Time,
 	expiresAfter time.Duration,
 	isSliding bool) *timeout {
-	return &timeout{
-		expiresAt:    expiresAt,
-		expiresAfter: expiresAfter,
-		isSliding:    isSliding,
-	}
+	to := new(timeout)
+	to.expiresAfter = expiresAfter
+	to.isSliding = isSliding
+	to.expiresAt = time.Now().Add(to.expiresAfter)
+	return to
 }
 
 func (to *timeout) slide() {
@@ -79,7 +78,8 @@ type store struct {
 }
 
 // New creates a new *store
-func New(expirationInterval time.Duration, onExpire ...func(k string, v interface{})) KV {
+func New(expirationInterval time.Duration,
+	onExpire ...func(k string, v interface{})) KV {
 	res := &store{
 		kv:                 make(map[string]*entry),
 		expirationInterval: expirationInterval,
@@ -118,6 +118,11 @@ func (kv *store) Get(k string) (interface{}, bool) {
 		return nil, ok
 	}
 	e.slide()
+	if e.expired() {
+		go notifyExpirations(map[string]interface{}{k: e.value}, kv.onExpire)
+		delete(kv.kv, k)
+		return nil, false
+	}
 	return e.value, ok
 }
 
@@ -131,11 +136,7 @@ func (kv *store) Put(k string, v interface{}, options ...PutOption) error {
 		value: v,
 	}
 	if opt.expiresAfter > 0 {
-		to := new(timeout)
-		to.expiresAfter = opt.expiresAfter
-		to.isSliding = opt.isSliding
-		to.expiresAt = time.Now().Add(to.expiresAfter)
-		e.timeout = to
+		e.timeout = newTimeout(opt.expiresAfter, opt.isSliding)
 	}
 	kv.mx.Lock()
 	defer kv.mx.Unlock()
@@ -236,18 +237,22 @@ func (kv *store) expireFunc() {
 	for k := range expired {
 		delete(kv.kv, k)
 	}
-	if kv.onExpire == nil {
+	go notifyExpirations(expired, kv.onExpire)
+}
+
+func notifyExpirations(
+	expired map[string]interface{},
+	onExpire func(k string, v interface{})) {
+	if onExpire == nil {
 		return
 	}
-	go func() {
-		for k, v := range expired {
-			k, v := k, v
-			retry.Try(func() error {
-				kv.onExpire(k, v)
-				return nil
-			})
-		}
-	}()
+	for k, v := range expired {
+		k, v := k, v
+		retry.Try(func() error {
+			onExpire(k, v)
+			return nil
+		})
+	}
 }
 
 //-----------------------------------------------------------------------------

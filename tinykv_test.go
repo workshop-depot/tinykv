@@ -16,6 +16,7 @@ var _ KV = &store{}
 func Test01(t *testing.T) {
 	assert := assert.New(t)
 	rg := New(time.Millisecond * 30)
+	defer rg.Stop()
 
 	rg.Put("1", 1)
 	v, ok := rg.Get("1")
@@ -243,6 +244,80 @@ func Test10(t *testing.T) {
 
 	_, ok = kv.Get(key)
 	assert.True(ok)
+}
+
+func Test11(t *testing.T) {
+	assert := assert.New(t)
+
+	key := "QQG"
+
+	var expiredKey string
+	onExpired := func(k string, v interface{}) { expiredKey = k }
+
+	kv := New(time.Millisecond*100, onExpired)
+	err := kv.Put(
+		key, "G",
+		ExpiresAfter(time.Millisecond*15))
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 10)
+
+	v, ok := kv.Get(key)
+	assert.True(ok)
+	assert.Equal("G", v)
+
+	<-time.After(time.Millisecond * 10)
+
+	_, ok = kv.Get(key)
+	assert.False(ok)
+	<-time.After(time.Millisecond)
+	assert.Equal(key, expiredKey)
+
+	<-time.After(time.Millisecond * 110)
+
+	_, ok = kv.Get(key)
+	assert.False(ok)
+}
+
+func Test12(t *testing.T) {
+	assert := assert.New(t)
+
+	key := "QQG"
+
+	onExpired := func(k string, v interface{}) {}
+
+	kv := New(time.Millisecond*100, onExpired)
+	err := kv.Put(
+		key, "G",
+		ExpiresAfter(time.Millisecond))
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 10)
+
+	v, ok := kv.Get(key)
+	assert.False(ok)
+	assert.Equal(nil, v)
+}
+
+func ExampleNew() {
+	key := "KEY"
+	value := "VALUE"
+
+	kv := New(time.Millisecond * 10)
+	defer kv.Stop()
+	kv.Put(key, value)
+	v, ok := kv.Get(key)
+	if !ok {
+		// ...
+	}
+	fmt.Println(key, v)
+	kv.Delete(key)
+	_, ok = kv.Get(key)
+	fmt.Println(ok)
+
+	// Output:
+	// KEY VALUE
+	// false
 }
 
 func BenchmarkGetNoValue(b *testing.B) {
