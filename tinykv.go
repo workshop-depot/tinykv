@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dc0d/retry"
+	"github.com/pkg/errors"
 )
 
 //-----------------------------------------------------------------------------
@@ -248,11 +248,23 @@ func notifyExpirations(
 	}
 	for k, v := range expired {
 		k, v := k, v
-		retry.Try(func() error {
+		try(func() error {
 			onExpire(k, v)
 			return nil
 		})
 	}
 }
+
+//-----------------------------------------------------------------------------
+
+// constants
+const (
+	DefaultTimeout = time.Minute * 3
+)
+
+// errors
+var (
+	ErrCASCond = errors.Errorf("CAS COND FAILED")
+)
 
 //-----------------------------------------------------------------------------
