@@ -241,6 +241,9 @@ func (kv *store) expireLoop() {
 			return
 		case <-expireTime.C:
 			v := kv.expireFunc()
+			if v < 0 {
+				v = -1 * v
+			}
 			if v > 0 && v < kv.expirationInterval {
 				interval = v
 			}
@@ -253,14 +256,16 @@ func (kv *store) expireFunc() time.Duration {
 	kv.mx.Lock()
 	defer kv.mx.Unlock()
 
-	var d time.Duration
-	now := time.Now()
+	var interval time.Duration
 	if len(kv.heap) == 0 {
-		return d
+		return interval
 	}
 	expired := make(map[string]interface{})
 	c := -1
-	for len(kv.heap) > 0 {
+	for {
+		if len(kv.heap) == 0 {
+			break
+		}
 		c++
 		if c >= len(kv.heap) {
 			break
@@ -272,7 +277,10 @@ func (kv *store) expireFunc() time.Duration {
 			continue
 		}
 		if !last.expired() {
-			d = last.expiresAt.Sub(now)
+			interval = last.expiresAt.Sub(time.Now())
+			if interval < 0 {
+				interval = last.expiresAfter
+			}
 			break
 		}
 		last = timeheapPop(&kv.heap)
@@ -284,11 +292,14 @@ func (kv *store) expireFunc() time.Duration {
 		delete(kv.kv, k)
 	}
 	go notifyExpirations(expired, kv.onExpire)
-	if d == 0 && len(kv.heap) > 0 {
+	if interval == 0 && len(kv.heap) > 0 {
 		last := kv.heap[len(kv.heap)-1]
-		d = last.expiresAt.Sub(now)
+		interval = last.expiresAt.Sub(time.Now())
+		if interval < 0 {
+			interval = last.expiresAfter
+		}
 	}
-	return d
+	return interval
 }
 
 func notifyExpirations(
