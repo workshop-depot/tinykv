@@ -270,8 +270,8 @@ func (kv *store) expireFunc() time.Duration {
 		if c >= len(kv.heap) {
 			break
 		}
-		last := kv.heap[len(kv.heap)-1]
-		v, ok := kv.kv[last.key]
+		last := kv.heap[0]
+		entry, ok := kv.kv[last.key]
 		if !ok {
 			timeheapPop(&kv.heap)
 			continue
@@ -285,7 +285,7 @@ func (kv *store) expireFunc() time.Duration {
 		}
 		last = timeheapPop(&kv.heap)
 		if ok {
-			expired[last.key] = v.value
+			expired[last.key] = entry.value
 		}
 	}
 	for k := range expired {
