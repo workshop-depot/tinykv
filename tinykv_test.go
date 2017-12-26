@@ -28,7 +28,7 @@ func TestTimeoutHeap(t *testing.T) {
 	for len(h) > 0 {
 		ito := timeheapPop(&h)
 		if prev != nil {
-			assert.Condition(func() bool { return !prev.expiresAt.Before(ito.expiresAt) })
+			assert.Condition(func() bool { return !prev.expiresAt.After(ito.expiresAt) })
 		}
 		prev = ito
 	}

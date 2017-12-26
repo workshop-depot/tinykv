@@ -54,7 +54,7 @@ func (to *timeout) expired() bool {
 type th []*timeout
 
 func (h th) Len() int           { return len(h) }
-func (h th) Less(i, j int) bool { return h[i].expiresAt.After(h[j].expiresAt) }
+func (h th) Less(i, j int) bool { return h[i].expiresAt.Before(h[j].expiresAt) }
 func (h th) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 func (h *th) Push(x tohVal)     { *h = append(*h, x) }
 func (h *th) Pop() tohVal {
@@ -244,7 +244,7 @@ func (kv *store) expireLoop() {
 			if v < 0 {
 				v = -1 * v
 			}
-			if v > 0 && v < kv.expirationInterval {
+			if v > 0 && v <= kv.expirationInterval {
 				interval = v
 			}
 			expireTime.Reset(interval)
@@ -293,7 +293,7 @@ func (kv *store) expireFunc() time.Duration {
 	}
 	go notifyExpirations(expired, kv.onExpire)
 	if interval == 0 && len(kv.heap) > 0 {
-		last := kv.heap[len(kv.heap)-1]
+		last := kv.heap[0]
 		interval = last.expiresAt.Sub(time.Now())
 		if interval < 0 {
 			interval = last.expiresAfter
