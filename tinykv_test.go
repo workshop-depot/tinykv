@@ -11,11 +11,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestTimeoutHeap(t *testing.T) {
+	assert := assert.New(t)
+
+	now := time.Now()
+	r := rand.New(rand.NewSource(now.Unix()))
+	n := r.Intn(10000) + 10
+	var h th = []*timeout{}
+	for i := 0; i < n; i++ {
+		to := &timeout{expiresAt: now.Add(time.Duration(r.Intn(100000)) * time.Second)}
+		timeheapPush(&h, to)
+	}
+
+	var prev *timeout
+	// t.Log(h[0].expiresAt, h[len(h)-1].expiresAt)
+	for len(h) > 0 {
+		ito := timeheapPop(&h)
+		if prev != nil {
+			assert.Condition(func() bool { return !prev.expiresAt.Before(ito.expiresAt) })
+		}
+		prev = ito
+	}
+	assert.Equal(0, len(h))
+}
+
 var _ KV = &store{}
 
-func Test01(t *testing.T) {
+func TestGetPut(t *testing.T) {
 	assert := assert.New(t)
-	rg := New(time.Millisecond * 30)
+	rg := New(0)
 	defer rg.Stop()
 
 	rg.Put("1", 1)
@@ -32,6 +56,42 @@ func Test01(t *testing.T) {
 	v, ok = rg.Get("2")
 	assert.False(ok)
 	assert.NotEqual(2, v)
+}
+
+func TestTimeout(t *testing.T) {
+	assert := assert.New(t)
+	rcvd := make(chan string, 100)
+	notify := func(k string, v interface{}) {
+		rcvd <- k
+	}
+	rg := New(time.Millisecond*10, notify)
+	n := 1000
+	for i := n; i < 2*n; i++ {
+		rg.Put(strconv.Itoa(i), i, ExpiresAfter(time.Millisecond*10))
+	}
+	got := make([]string, n)
+OUT01:
+	for {
+		select {
+		case v := <-rcvd:
+			i, err := strconv.Atoi(v)
+			assert.NoError(err)
+			i = i - n
+			if i < 0 || i >= n {
+				t.Fail()
+			}
+			got[i] = v
+		case <-time.After(time.Millisecond * 100):
+			break OUT01
+		}
+	}
+	assert.Equal(len(got), n)
+	for i := 0; i < n; i++ {
+		if got[i] != "" {
+			continue
+		}
+		assert.Fail("should have value", i, got[i])
+	}
 }
 
 func Test02(t *testing.T) {
@@ -67,18 +127,18 @@ func Test02(t *testing.T) {
 func Test03(t *testing.T) {
 	assert := assert.New(t)
 	var putAt time.Time
-	var elapsed time.Duration
+	elapsed := make(chan time.Duration, 1)
 	kv := New(
 		time.Millisecond*50,
 		func(k string, v interface{}) {
-			elapsed = time.Now().Sub(putAt)
+			elapsed <- time.Now().Sub(putAt)
 		})
 
 	putAt = time.Now()
 	kv.Put("1", 1, ExpiresAfter(time.Millisecond*10))
 
 	<-time.After(time.Millisecond * 100)
-	assert.WithinDuration(putAt, putAt.Add(elapsed), time.Millisecond*60)
+	assert.WithinDuration(putAt, putAt.Add(<-elapsed), time.Millisecond*60)
 }
 
 func Test04(t *testing.T) {
@@ -251,8 +311,8 @@ func Test11(t *testing.T) {
 
 	key := "QQG"
 
-	var expiredKey string
-	onExpired := func(k string, v interface{}) { expiredKey = k }
+	var expiredKey = make(chan string, 100)
+	onExpired := func(k string, v interface{}) { expiredKey <- k }
 
 	kv := New(time.Millisecond*100, onExpired)
 	err := kv.Put(
@@ -271,7 +331,7 @@ func Test11(t *testing.T) {
 	_, ok = kv.Get(key)
 	assert.False(ok)
 	<-time.After(time.Millisecond)
-	assert.Equal(key, expiredKey)
+	assert.Equal(key, <-expiredKey)
 
 	<-time.After(time.Millisecond * 110)
 

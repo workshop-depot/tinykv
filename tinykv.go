@@ -1,11 +1,10 @@
 package tinykv
 
 import (
-	"context"
+	"fmt"
 	"sync"
 	"time"
-
-	"github.com/pkg/errors"
+	// "github.com/pkg/errors"
 )
 
 //-----------------------------------------------------------------------------
@@ -14,16 +13,19 @@ type timeout struct {
 	expiresAt    time.Time
 	expiresAfter time.Duration
 	isSliding    bool
+	key          string
 }
 
 func newTimeout(
+	key string,
 	expiresAfter time.Duration,
 	isSliding bool) *timeout {
-	to := new(timeout)
-	to.expiresAfter = expiresAfter
-	to.isSliding = isSliding
-	to.expiresAt = time.Now().Add(to.expiresAfter)
-	return to
+	return &timeout{
+		expiresAt:    time.Now().Add(expiresAfter),
+		expiresAfter: expiresAfter,
+		isSliding:    isSliding,
+		key:          key,
+	}
 }
 
 func (to *timeout) slide() {
@@ -48,6 +50,23 @@ func (to *timeout) expired() bool {
 
 //-----------------------------------------------------------------------------
 
+// timeout heap
+type th []*timeout
+
+func (h th) Len() int           { return len(h) }
+func (h th) Less(i, j int) bool { return h[i].expiresAt.After(h[j].expiresAt) }
+func (h th) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *th) Push(x tohVal)     { *h = append(*h, x) }
+func (h *th) Pop() tohVal {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
+//-----------------------------------------------------------------------------
+
 type entry struct {
 	*timeout
 	value interface{}
@@ -66,38 +85,71 @@ type KV interface {
 
 //-----------------------------------------------------------------------------
 
-// store is a registry for values (like/is a concurrent map) with timeout and sliding timeout
-type store struct {
-	ctx                context.Context
-	cancel             context.CancelFunc
-	expirationInterval time.Duration
-	onExpire           func(k string, v interface{})
-
-	mx sync.Mutex
-	kv map[string]*entry
+type putOpt struct {
+	expiresAfter time.Duration
+	isSliding    bool
+	cas          func(interface{}, bool) bool
 }
 
-// New creates a new *store
-func New(expirationInterval time.Duration,
-	onExpire ...func(k string, v interface{})) KV {
+// PutOption extra options for put
+type PutOption func(*putOpt)
+
+// ExpiresAfter entry will expire after this time
+func ExpiresAfter(expiresAfter time.Duration) PutOption {
+	return func(opt *putOpt) {
+		opt.expiresAfter = expiresAfter
+	}
+}
+
+// IsSliding sets if the entry would get expired in a sliding manner
+func IsSliding(isSliding bool) PutOption {
+	return func(opt *putOpt) {
+		opt.isSliding = isSliding
+	}
+}
+
+// CAS for performing a compare and swap
+func CAS(cas func(oldValue interface{}, found bool) bool) PutOption {
+	return func(opt *putOpt) {
+		opt.cas = cas
+	}
+}
+
+//-----------------------------------------------------------------------------
+
+// store is a registry for values (like/is a concurrent map) with timeout and sliding timeout
+type store struct {
+	onExpire func(k string, v interface{})
+
+	stop               chan struct{}
+	stopOnce           sync.Once
+	expirationInterval time.Duration
+	mx                 sync.Mutex
+	kv                 map[string]*entry
+	heap               th
+}
+
+// New creates a new *store, onExpire is for notification (must be fast).
+func New(expirationInterval time.Duration, onExpire ...func(k string, v interface{})) KV {
+	if expirationInterval <= 0 {
+		expirationInterval = time.Second * 20
+	}
 	res := &store{
+		stop:               make(chan struct{}),
 		kv:                 make(map[string]*entry),
 		expirationInterval: expirationInterval,
+		heap:               th{},
 	}
 	if len(onExpire) > 0 && onExpire[0] != nil {
 		res.onExpire = onExpire[0]
 	}
-	if res.expirationInterval <= 0 {
-		res.expirationInterval = 30 * time.Second
-	}
-	res.ctx, res.cancel = context.WithCancel(context.Background())
 	go res.expireLoop()
 	return res
 }
 
 // Stop stops the goroutine
 func (kv *store) Stop() {
-	kv.cancel()
+	kv.stopOnce.Do(func() { close(kv.stop) })
 }
 
 // Delete deletes an entry
@@ -135,11 +187,12 @@ func (kv *store) Put(k string, v interface{}, options ...PutOption) error {
 	e := &entry{
 		value: v,
 	}
-	if opt.expiresAfter > 0 {
-		e.timeout = newTimeout(opt.expiresAfter, opt.isSliding)
-	}
 	kv.mx.Lock()
 	defer kv.mx.Unlock()
+	if opt.expiresAfter > 0 {
+		e.timeout = newTimeout(k, opt.expiresAfter, opt.isSliding)
+		timeheapPush(&kv.heap, e.timeout)
+	}
 	if opt.cas != nil {
 		return kv.cas(k, e, opt.cas)
 	}
@@ -179,65 +232,63 @@ func (kv *store) Take(k string) (interface{}, bool) {
 
 //-----------------------------------------------------------------------------
 
-type putOpt struct {
-	expiresAfter time.Duration
-	isSliding    bool
-	cas          func(interface{}, bool) bool
-}
-
-// PutOption extra options for put
-type PutOption func(*putOpt)
-
-// ExpiresAfter entry will expire after this time
-func ExpiresAfter(expiresAfter time.Duration) PutOption {
-	return func(opt *putOpt) {
-		opt.expiresAfter = expiresAfter
-	}
-}
-
-// IsSliding sets if the entry would get expired in a sliding manner
-func IsSliding(isSliding bool) PutOption {
-	return func(opt *putOpt) {
-		opt.isSliding = isSliding
-	}
-}
-
-// CAS for performing a compare and swap
-func CAS(cas func(oldValue interface{}, found bool) bool) PutOption {
-	return func(opt *putOpt) {
-		opt.cas = cas
-	}
-}
-
-//-----------------------------------------------------------------------------
-
 func (kv *store) expireLoop() {
+	interval := kv.expirationInterval
+	expireTime := time.NewTimer(interval)
 	for {
 		select {
-		case <-kv.ctx.Done():
+		case <-kv.stop:
 			return
-		case <-time.After(kv.expirationInterval):
-			kv.expireFunc()
+		case <-expireTime.C:
+			v := kv.expireFunc()
+			if v > 0 && v < kv.expirationInterval {
+				interval = v
+			}
+			expireTime.Reset(interval)
 		}
 	}
 }
 
-// using type indexExpired []*entry ?
-func (kv *store) expireFunc() {
+func (kv *store) expireFunc() time.Duration {
 	kv.mx.Lock()
 	defer kv.mx.Unlock()
 
+	var d time.Duration
+	now := time.Now()
+	if len(kv.heap) == 0 {
+		return d
+	}
 	expired := make(map[string]interface{})
-	for k, v := range kv.kv {
-		if !v.expired() {
+	c := -1
+	for len(kv.heap) > 0 {
+		c++
+		if c >= len(kv.heap) {
+			break
+		}
+		last := kv.heap[len(kv.heap)-1]
+		v, ok := kv.kv[last.key]
+		if !ok {
+			timeheapPop(&kv.heap)
 			continue
 		}
-		expired[k] = v.value
+		if !last.expired() {
+			d = last.expiresAt.Sub(now)
+			break
+		}
+		last = timeheapPop(&kv.heap)
+		if ok {
+			expired[last.key] = v
+		}
 	}
 	for k := range expired {
 		delete(kv.kv, k)
 	}
 	go notifyExpirations(expired, kv.onExpire)
+	if d == 0 && len(kv.heap) > 0 {
+		last := kv.heap[len(kv.heap)-1]
+		d = last.expiresAt.Sub(now)
+	}
+	return d
 }
 
 func notifyExpirations(
@@ -257,14 +308,18 @@ func notifyExpirations(
 
 //-----------------------------------------------------------------------------
 
-// constants
-const (
-	DefaultTimeout = time.Minute * 3
-)
-
 // errors
 var (
-	ErrCASCond = errors.Errorf("CAS COND FAILED")
+	ErrCASCond = errorf("CAS COND FAILED")
 )
+
+//-----------------------------------------------------------------------------
+
+type sentinelErr string
+
+func (v sentinelErr) Error() string { return string(v) }
+func errorf(format string, a ...interface{}) error {
+	return sentinelErr(fmt.Sprintf(format, a...))
+}
 
 //-----------------------------------------------------------------------------
