@@ -359,6 +359,30 @@ func Test12(t *testing.T) {
 	assert.Equal(nil, v)
 }
 
+func Test13(t *testing.T) {
+	assert := assert.New(t)
+
+	got := make(chan interface{}, 10)
+	onExpired := func(k string, v interface{}) {
+		got <- v
+	}
+
+	kv := New(time.Millisecond*10, onExpired)
+	err := kv.Put(
+		"1", 123,
+		ExpiresAfter(time.Millisecond))
+	assert.NoError(err)
+
+	<-time.After(time.Millisecond * 50)
+
+	v, ok := kv.Get("1")
+	assert.False(ok)
+	assert.Equal(nil, v)
+
+	v = <-got
+	assert.Equal(123, v)
+}
+
 func ExampleNew() {
 	key := "KEY"
 	value := "VALUE"
