@@ -383,6 +383,51 @@ func Test13(t *testing.T) {
 	assert.Equal(123, v)
 }
 
+func TestOrdering(t *testing.T) {
+	assert := assert.New(t)
+
+	type data struct {
+		key   string
+		value interface{}
+	}
+	got := make(chan data, 100)
+	onExpired := func(k string, v interface{}) {
+		got <- data{k, v}
+	}
+
+	kv := New(time.Millisecond*5, onExpired)
+
+	for i := 1; i <= 10; i++ {
+		k := strconv.Itoa(i)
+		v := i
+		kv.Put(k, v, ExpiresAfter(time.Millisecond*time.Duration(i)*50))
+	}
+
+	var order = make([]int, 10)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case v := <-got:
+				i, _ := strconv.Atoi(v.key)
+				i--
+				val := v.value.(int)
+				val--
+				order[i] = val
+			case <-time.After(time.Millisecond * 100):
+				return
+			}
+		}
+	}()
+	<-done
+	for k, v := range order {
+		assert.Equal(k, v)
+	}
+
+	assert.Equal(1, 1)
+}
+
 func ExampleNew() {
 	key := "KEY"
 	value := "VALUE"
