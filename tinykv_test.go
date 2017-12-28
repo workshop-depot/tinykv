@@ -428,6 +428,50 @@ func TestOrdering(t *testing.T) {
 	assert.Equal(1, 1)
 }
 
+func TestCASOldFound(t *testing.T) {
+	assert := assert.New(t)
+
+	kv := New(time.Millisecond * 10)
+	key := "KEY01"
+	value := "VALUE01"
+	err := kv.Put(
+		key, value,
+		CAS(func(old interface{}, found bool) bool {
+			assert.Nil(old)
+			assert.False(found)
+			return true
+		}))
+	assert.NoError(err)
+	err = kv.Put(
+		key, value,
+		CAS(func(old interface{}, found bool) bool {
+			assert.Equal(value, old)
+			assert.True(found)
+			return true
+		}))
+	assert.NoError(err)
+	kv.Delete(key)
+	err = kv.Put(
+		key, value,
+		CAS(func(old interface{}, found bool) bool {
+			assert.Nil(old)
+			assert.False(found)
+			return true
+		}))
+	assert.NoError(err)
+	v, ok := kv.Take(key)
+	assert.True(ok)
+	assert.Equal(value, v)
+	err = kv.Put(
+		key, value,
+		CAS(func(old interface{}, found bool) bool {
+			assert.Nil(old)
+			assert.False(found)
+			return true
+		}))
+	assert.NoError(err)
+}
+
 func ExampleNew() {
 	key := "KEY"
 	value := "VALUE"
