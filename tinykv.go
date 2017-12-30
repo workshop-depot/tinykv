@@ -210,10 +210,13 @@ func (kv *store) cas(k string, e *entry, casFunc func(interface{}, bool) bool) e
 		return ErrCASCond
 	}
 	if ok && old != nil {
-		old.slide()
+		if e.timeout != nil {
+			old.timeout = e.timeout
+		}
 		old.value = e.value
 		e = old
 	}
+	e.slide()
 	kv.kv[k] = e
 	return nil
 }
@@ -245,7 +248,7 @@ func (kv *store) expireLoop() {
 				v = -1 * v
 			}
 			if v > 0 && v <= kv.expirationInterval {
-				interval = v
+				interval = (2*interval + v) / 3
 			}
 			expireTime.Reset(interval)
 		}
@@ -288,7 +291,15 @@ func (kv *store) expireFunc() time.Duration {
 			expired[last.key] = entry.value
 		}
 	}
+REVAL:
 	for k := range expired {
+		newVal, ok := kv.kv[k]
+		if !ok ||
+			newVal.timeout == nil ||
+			!newVal.expired() {
+			delete(expired, k)
+			goto REVAL
+		}
 		delete(kv.kv, k)
 	}
 	go notifyExpirations(expired, kv.onExpire)
