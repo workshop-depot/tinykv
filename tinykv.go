@@ -248,7 +248,10 @@ func (kv *store) expireLoop() {
 				v = -1 * v
 			}
 			if v > 0 && v <= kv.expirationInterval {
-				interval = (2*interval + v) / 3
+				interval = (2*interval + v) / 3 // good enough history
+			}
+			if interval <= 0 {
+				interval = time.Millisecond
 			}
 			expireTime.Reset(interval)
 		}
